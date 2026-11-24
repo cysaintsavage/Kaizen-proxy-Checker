@@ -535,4 +535,108 @@ async def receive(m: Message, state: FSMContext, bot: Bot):
     proxies = parse_proxies(text)
     if not proxies:
         return await m.answer("❌ No valid proxies found. Check the format and try again.", reply_markup=back_kb())
-    if len(proxies) >
+    if len(proxies) >MAX_PROXIES:
+        proxies = proxies[:MAX_PROXIES]
+        await m.answer(f"⚠️ Limited to the first {MAX_PROXIES} proxies.")
+    mode = (await state.get_data())["mode"]
+    await state.clear()
+    asyncio.create_task(run_job(m, uid, proxies, mode))
+
+
+@router.callback_query(F.data == "stop")
+async def stop_job(c: CallbackQuery):
+    ev = JOBS.get(c.from_user.id)
+    if ev:
+        ev.set()
+        await c.answer("🛑 Stopping…")
+    else:
+        await c.answer("No active check.")
+
+
+@router.callback_query(F.data == "settings")
+async def settings(c: CallbackQuery):
+    await safe_edit(c.message, "⚙️ <b>Settings</b>\nTap to change a value." + footer(), settings_kb(get_settings(c.from_user.id)))
+    await c.answer()
+
+
+@router.callback_query(F.data.startswith("set:"))
+async def change_setting(c: CallbackQuery):
+    key = c.data.split(":")[1]
+    s = get_settings(c.from_user.id)
+    if key == "timeout":
+        opts = [5, 10, 15, 20, 30]
+        save_setting(c.from_user.id, "timeout", opts[(opts.index(s.timeout) + 1) % len(opts)] if s.timeout in opts else 10)
+    elif key == "threads":
+        opts = [50, 100, 200, 300, 500]
+        save_setting(c.from_user.id, "threads", opts[(opts.index(s.threads) + 1) % len(opts)] if s.threads in opts else 100)
+    elif key == "geo":
+        save_setting(c.from_user.id, "geo", int(not s.geo))
+    elif key == "banner":
+        save_setting(c.from_user.id, "banner", int(not s.banner))
+    await safe_edit(c.message, "⚙️ <b>Settings</b>\nTap to change a value." + footer(), settings_kb(get_settings(c.from_user.id)))
+    await c.answer("Saved ✅")
+
+
+@router.callback_query(F.data == "stats")
+async def stats(c: CallbackQuery):
+    r = db.execute("SELECT checks,tested,alive FROM users WHERE id=?", (c.from_user.id,)).fetchone() or (0, 0, 0)
+    rate = (r[2] / r[1] * 100) if r[1] else 0
+    await safe_edit(c.message, f"📊 <b>Your Stats</b>\n\n🔁 Checks run: <b>{r[0]}</b>\n📦 Proxies tested: <b>{r[1]}</b>\n"
+                               f"🟢 Alive found: <b>{r[2]}</b>\n📈 Success rate: <b>{rate:.1f}%</b>" + footer(), back_kb())
+    await c.answer()
+
+
+@router.callback_query(F.data == "help")
+async def help_(c: CallbackQuery):
+    await safe_edit(
+        c.message,
+        "📖 <b>Help</b>\n\n1️⃣ Tap <b>Check Proxies</b>\n2️⃣ Pick a type (or Auto-Detect)\n3️⃣ Send proxies or a .txt file\n"
+        "4️⃣ Get results + downloadable lists\n\n<b>Anonymity levels</b>\n"
+        "• <b>Elite</b> – hides your IP & proxy use\n• <b>Anonymous</b> – hides IP, reveals proxy\n"
+        "• <b>Transparent</b> – leaks your real IP\n\n"
+        f"Need help? Contact @{DEV}", back_kb())
+    await c.answer()
+
+
+# -------------------------------------------------------------------- ADMIN
+@router.message(Command("stats"))
+async def admin_stats(m: Message):
+    if m.from_user.id not in ADMIN_IDS:
+        return
+    u, c, t, a = db.execute("SELECT COUNT(*),SUM(checks),SUM(tested),SUM(alive) FROM users").fetchone()
+    await m.answer(f"👑 <b>Admin Stats</b>\n\nUsers: {u}\nChecks: {c or 0}\nTested: {t or 0}\nAlive: {a or 0}")
+
+
+@router.message(Command("broadcast"))
+async def broadcast(m: Message, bot: Bot):
+    if m.from_user.id not in ADMIN_IDS:
+        return
+    text = (m.text or "").partition(" ")[2].strip()
+    if not text:
+        return await m.answer("Usage: /broadcast your message")
+    ok = fail = 0
+    for (uid,) in db.execute("SELECT id FROM users").fetchall():
+        try:
+            await bot.send_message(uid, text)
+            ok += 1
+        except Exception:
+            fail += 1
+        await asyncio.sleep(0.05)
+    await m.answer(f"📣 Sent: {ok} | Failed: {fail}")
+
+
+# --------------------------------------------------------------------- MAIN
+async def main():
+    if not BOT_TOKEN:
+        raise SystemExit("Set BOT_TOKEN in .env")
+    bot = Bot(BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
+    dp = Dispatcher(storage=MemoryStorage())
+    dp.message.outer_middleware(ForceJoin())
+    dp.callback_query.outer_middleware(ForceJoin())
+    dp.include_router(router)
+    log.info("Bot started | Dev: @%s", DEV)
+    await dp.start_polling(bot)
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
