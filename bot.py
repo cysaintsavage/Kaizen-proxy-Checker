@@ -34,9 +34,9 @@ from banner import render_banner
 from dotenv import load_dotenv
 
 load_dotenv()
-BOT_TOKEN = os.getenv("BOT_TOKEN", "")
-CHANNELS = [c.strip() for c in os.getenv("CHANNELS", "").split(",") if c.strip()]  # e.g. @mychannel
-ADMIN_IDS = {int(x) for x in os.getenv("ADMIN_IDS", "").split(",") if x.strip().isdigit()}
+BOT_TOKEN = os.getenv("BOT_TOKEN", "9190437259:AAHlK_4JbQxxUTVf8rJfYqDFiSZa7nyOKq8")
+CHANNELS = [c.strip() for c in os.getenv("CHANNELS", "https://t.me/+SrJ_VqtIkvUxMTFk").split(",") if c.strip()]  # e.g. @pvt phase
+ADMIN_IDS = {int(x) for x in os.getenv("ADMIN_IDS", "8421362535").split(",") if x.strip().isdigit()}
 MAX_PROXIES = int(os.getenv("MAX_PROXIES", "3000"))
 DEV = "Sy_saint"
 HEADERS_URL = "http://httpbin.org/headers"
